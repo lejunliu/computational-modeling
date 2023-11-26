@@ -1,0 +1,335 @@
+---
+title: "Lecture 2 Code"
+output: html_document
+date: "2023-09-01"
+---
+
+# Code strategies to pay attention to:  
+
+- break down equations into small pieces. 
+
+- test one snippet of code at a time. 
+
+- learn to write and source functions and jump into them with the debugger. 
+
+
+# Some setup  
+
+Write a function to source all functions within the folder functions, then run it. 
+
+```{r}
+paste0("./Functions/", 
+                               list.files("./Functions/"), recursive=TRUE)
+```
+
+```{r}
+# Source all functions. 
+sf <- function() sapply(paste0("./Functions/", 
+                               list.files("./Functions/", 
+                                          recursive=TRUE)), source) 
+sf()
+```
+
+
+# Goal. 
+
+Run 1000 trials ($T=1000$) completing 2 bandits with $\mu_1=.2$ and $\mu_2=.8$ — playing 
+around with different parameter values for learning rate and beta.   
+
+But first let's start with 1 pt with a given setting of their parameters. 
+
+## Define experimental parameters.  
+
+```{r}
+trials <- 1000
+trials
+```
+
+
+Reward is fixed at 1 (non-reward = 0). 
+
+Check-in — which bandit is better — ie. do we want to learn to select more often?  
+
+## Understanding choice. 
+
+Let's take a detour to think about 
+
+
+
+```{r}
+
+value_bandit_2 <- seq(from = 0, to = 1 , by = .1)
+value_bandit_1 <- .5
+#round(value_bandit_2-value_bandit_1, 2)
+
+value_bandit_2
+value_bandit_2-value_bandit_1
+length(value_bandit_2)
+
+```
+
+Define a parameter_value. 
+```{r}
+beta <- 2
+```
+
+$p(choice \ option \ 2) \propto e^{\beta * V(2)}$ 
+
+
+Let's try some different values  
+
+```{r}
+value_bandit_2
+value_bandit_2[7]
+cat("\n The value of bandit 2 is:", value_bandit_2[1])
+# The part in the equation  
+beta*value_bandit_2[7]
+exp(beta*value_bandit_2[7])
+numerator <- exp(beta*value_bandit_2[7])
+
+
+# To incorporate the other value and normalize  
+denom <- sum(exp(beta*value_bandit_2[7]), exp(beta*value_bandit_1))
+
+cat("\n The probability of choosing it is:", numerator/denom)
+```
+
+
+Now let's loop through all the values. 
+```{r}
+for (i in 1:length(value_bandit_2)) {
+  cat("\nHi, i is", i)
+}
+```
+
+```{r}
+choice_probs <- rep(NA, length(value_bandit_2))
+choice_probs
+# Store choice probability for the ith option 
+for (i in 1:length(value_bandit_2)) {
+  
+  numerator <- exp(beta*value_bandit_2[i])
+  
+  denom <- sum(exp(beta*value_bandit_2[i]), exp(beta*value_bandit_1))  
+  
+  choice_probs[i] <- numerator/denom
+}
+```
+
+```{r}
+plot(value_bandit_2-value_bandit_1, choice_probs)
+```
+
+Let's write this up as a function and look at it in operation using the debugger.  
+
+```{r}
+choice_probs <- list()
+
+# Store choice probability for the ith option 
+for (i in 1:length(value_bandit_2)) {
+  vec_of_choice_probs <- RunSoftMax(values=c(value_bandit_1, value_bandit_2[i]), beta=.5)
+  choice_probs[[i]] <- vec_of_choice_probs[2]
+}
+```
+
+
+```{r}
+plot(value_bandit_2-value_bandit_1, choice_probs)
+```
+
+
+# Let's do some learning.  
+
+We've got two bandits so we want two values.  We haven't learned anything yet, so what should our values be?  
+
+```{r}
+bandit_values <- c(0, 0)
+```
+
+Okay cool —  so what do we now (hint: it's *trial and error* learning! — we learn by *acting*). 
+
+
+
+
+
+
+
+Okay, so it's let's act! Given what we know know.  
+```{r}
+choice_probs <- RunSoftMax(bandit_values, beta=10)
+```
+
+
+```{r}
+choice_probs
+```
+
+Sampling from a uniform distribution. (try it out a few times.). 
+```{r}
+#runif(n=1, min=0, max=1)
+random_action_prob <- runif(n=1, min=0, max=1)
+random_action_prob
+```
+
+Try out several options.  
+```{r}
+random_action_prob <- runif(n=1, min=0, max=1)
+
+cat("\nCurrent random action prob:", random_action_prob)
+
+if (choice_probs[1] > random_action_prob) {
+  cat("\nChoosing option 1!")
+  action <- 1
+} else {
+  cat("\nChoosing option 2!")
+  action <- 2
+}
+```
+
+
+
+Woohoo, you just ran your first simulation!   
+
+
+Okay, so we've got an action — now let's see if we get reward. 
+
+```{r}
+bandit_probs <- c(.2, .8)
+```
+
+```{r}
+action
+bandit_probs[action] # Index the bandit probabilities with the chosen action. 
+```
+
+Okay so now let's simulate reward using a similar method. 
+
+
+```{r}
+random_reward_prob <- runif(n=1, min=0, max=1)
+
+cat("\nCurrent random reward prob:", random_reward_prob)
+
+if (bandit_probs[action] > random_reward_prob) {
+  cat("\nYEAAAAAAAAAHHH, REWARD!!!!!")
+  reward <- 1
+} else {
+  cat("\nbleeegghhh, no reward")
+  reward <- 0
+}
+```
+
+Awesome, we got a reward! Let's use the Rescorla-Wagner rule to update the value of the chosen action so we have a higher chance of choosing it 
+in the future!  
+
+Find the value to update. 
+```{r}
+bandit_values[action]
+```
+
+Define a parameter setting. 
+```{r} 
+alpha <- .1 
+```
+
+
+```{r}
+rpe <- reward - bandit_values[action]
+rpe
+```
+
+
+
+```{r}
+bandit_values[action] + alpha * rpe
+bandit_values[action] <- bandit_values[action] + alpha * rpe
+bandit_values
+```
+
+Wait, what about the time notation in Wilson-Collins? 
+
+h/t Andrew — The learning rule is recursive so don't typically need to code it — just overwrite the prior value with the new one   
+
+
+Okay, so I think we're ready! Let's run 1k trials 
+
+First let's set our model parameters: alpha and beta: the rate at which learning increments and the multiplier for choice probs dictating how random (stochastic) vs. 
+deterministic.   
+
+
+```{r}
+alpha <- 1
+beta <- 2
+```
+
+Make sure we've got our experimental parameters set up correctly   
+
+```{r}
+trials <- 1000
+bandit_probs <- c(.2, .8)
+```
+
+Initialize our values and this time let's be a bit more specific and call them q-values. 
+```{r}
+q_values <- c(0, 0)
+```
+
+Let's set some empty vectors where we can store the stuff that happens over our 1k trials. 
+```{r}
+
+simmed_actions <- rep(NA, trials)
+simmed_rewards <- rep(NA, trials)
+simmed_corrects <- rep(NA, trials)
+#simmed_rewards
+```
+
+```{r}
+q_values <- c(0, 0)
+t <- 1
+for (t in 1:trials) {
+  
+  # Choose via the softmax function. 
+  choice_probs <- RunSoftMax(q_values, beta)
+  
+  # Simulate an action probability...  
+  random_action_prob <- runif(n=1, min=0, max=1)
+  
+  # ... and use it to simulate an action (choice of bandit)
+  if (choice_probs[1] > random_action_prob) {
+    action <- 1
+    simmed_actions[t] <- action
+    simmed_corrects[t] <- 0 # Womp, chose the non-optimal bandit (p(rew)=.2) 
+  } else {
+    action <- 2
+    simmed_actions[t] <- action
+    simmed_corrects[t] <- 1 # Nice, chose the optimal bandit (p(rew)=.8)
+  }
+  
+  # Find out whether or not we get reward. 
+  random_reward_prob <- runif(n=1, min=0, max=1)
+  
+  if (bandit_probs[action] > random_reward_prob) {
+    reward <- 1
+    simmed_rewards[t] <- reward
+  } else {
+    reward <- 0
+    simmed_rewards[t] <- reward
+  }
+  
+  # Learn from the experience so we can improve!  
+  q_values <- RunRescorlaWagner(q_values, alpha, action, reward)
+  
+  # Onward to trial t+1! (unlesss it's t=1000)
+}
+```
+
+```{r}
+table(simmed_corrects)
+```
+
+```{r}
+plot(1:trials, simmed_rewards)
+table(simmed_rewards)
+```
+
+
