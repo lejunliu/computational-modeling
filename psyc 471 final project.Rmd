@@ -1,0 +1,381 @@
+---
+title: "Psyc 471 project"
+output: html_document
+author: "Angela Liu"
+date: "2023-12-04"
+---
+
+### Motivation:
+Education has always been a heated topic. All parents want their children to do better; however they provide "support" in different ways. 
+Today's child psychology has categorized parenting styles into four categories: permissive, authoritative, neglectful and authoritarian. Specifically, 
+most parents in the United States are either authoritative or authoritarian. Not to assess which parenting style is definitely better than the other, 
+this stimulation's purpose is to see how students' study behavior, specifically study time, would be impacted by their parenting styles given the grades received and provides some insights into what could be observed in real-world experiments.
+
+### Introduction: 
+In this experiment, we aim to explore the intricate relationship between parenting styles and the academic behaviors of high school students, 
+particularly focusing on how these styles influence students' adjustment of study time for assignments. 
+The core of our research questions revolves around two key aspects: 
+Firstly, the impact of parenting style on the adjustments students make to their study time prior to assignments, 
+and secondly, how this impact, in conjunction with the time adjustment, affects students' 
+aspirational grades for subsequent assignments.
+My hypothesis is that since students with authoritarian parents are taught to obey their parents' rules, they are less likely to have independent thinking on how much they should study, thus adjusting their study time less than the authoritative students. 
+In this experiment design, we will stimulate a high school course with 3 assignments: first assignment weighing 20% of the overall grade, 
+the midterm weighing 30%, and the final weighing 50%. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+# Set seed to ensure same result every time the code runs
+set.seed(1456)
+
+```
+
+### Data Generation:
+To stimulate the experiment, we will first write a function, `generate_student_data()`, to generate a data frame of student data containing
+information on parenting style (binary variable), overall grade aspiration for all three assignments combined, and first assignment's aspirational grade, study time, and actual grade. 
+
+The overall aspirational grade, first aspiration grade and first actual grade would follow a uniform distribution of $X \sim \mathrm{Uniform}(50, 100)$. And the first study time would follows a uniform distribution of $X \sim \mathrm{Uniform}(5, 100)$. The uniform distribution would generate random data without introducing any bias or assumption about the distribution of these attributes in the real world.
+
+```{r}
+# Function to generate a data frame of student data
+generate_student_data <- function(n_students) {
+  # Create a data frame with random values for each student's attributes
+  data.frame(
+    student_id = 1:n_students,
+    parenting_style = sample(c("Authoritative", "Authoritarian"), n_students, replace = TRUE),
+    overall_grade_aspiration = runif(n_students, 50, 100),
+    first_aspirational_grade = runif(n_students, 50, 100),
+    first_study_time = runif(n_students, 5, 100),
+    first_actual_grade = runif(n_students, 50, 100)
+  )
+}
+
+# Generate data for a specified number of students
+n_students <- 100 
+students <- generate_student_data(n_students) # Generate the student data
+head(students)
+
+# Define fixed learning rates for different parenting styles
+learning_rate_authoritative <- 0.5
+learning_rate_authoritarian <- 0.2
+
+```
+
+### Part 1: 
+First write two functions to calculate adjusted study time and aspirational grade for the next assignment based on the previous assignment. Specifically, in the `calculate_study_time()` function, I will incorporate the RW model. 
+```{r}
+# Function to calculate the adjusted study time for the next assignment
+# In this function, I want to incorporate the RW model
+calculate_study_time <- function(style, current_time, weight, aspirational_grade, actual_grade, alpha, beta) {
+  prediction_error <- aspirational_grade - actual_grade
+  
+  # Determine the learning rate based on the parenting style
+  learning_rate <- ifelse(style == "Authoritative", alpha, beta)
+  
+  # Calculate the adjustment in study time based on the learning rate and prediction error
+  delta <- learning_rate * prediction_error
+  
+  # Update the study time for the next assignment
+  new_time <- current_time + weight * delta
+  
+  # Ensure that the calculated study time is not negative
+  return(max(new_time, 0))
+}
+```
+
+```{r}
+# Function to calculate the aspirational grade for the next assignment
+calculate_aspirational_grade <- function(current_aspiration, time_adjustment, actual_grade, overall_aspiration) {
+  # Adjust the aspirational grade based on the time adjustment and the difference between actual and overall aspiration
+  new_aspiration <- current_aspiration + time_adjustment + (actual_grade - overall_aspiration)
+  
+  # Ensure that the aspirational grade is within the range of 0 to 100
+  return(min(max(new_aspiration, 0), 100))
+}
+```
+Now we can stimulate the midterm study time and aspirational grade using the functions written previously. 
+```{r}
+# Loop through each student to simulate study time and aspirational grade adjustments
+for (i in 1:nrow(students)) {
+  student <- students[i, ] # Extract data for the current student
+  
+  # Calculate the study time for the next assignment (midterm) using the function calculate_study_time
+  midterm_study_time <- calculate_study_time(
+    student$parenting_style,
+    student$first_study_time,
+    0.3, # Weight of the midterm assignment
+    student$first_aspirational_grade,
+    student$first_actual_grade,
+    learning_rate_authoritative,
+    learning_rate_authoritarian
+  )
+  
+  # Calculate the aspirational grade for the midterm using the function calculate_aspirational_grade
+  midterm_aspirational_grade <- calculate_aspirational_grade(
+    student$first_aspirational_grade,
+    midterm_study_time - student$first_study_time,
+    student$first_actual_grade,
+    student$overall_grade_aspiration
+  )
+  
+  # Update the dataset
+  students$midterm_study_time[i] <- midterm_study_time
+  students$midterm_aspirational_grade[i] <- midterm_aspirational_grade
+}
+
+head(students)
+```
+Let's observe whether there is a difference in change of study time for different parenting styles. 
+First, let's calculate the difference in change in study time for each student. 
+```{r}
+students <- students %>%
+  mutate(change_in_study_time = midterm_study_time - first_study_time)
+```
+Let's calculate the difference between the first actual grade and first aspirational grade and see its relationship with change in study time. 
+```{r}
+students <- students %>%
+  mutate(first_grade_difference = first_aspirational_grade - first_actual_grade)
+head(students)
+```
+Let's use graphs to explore the relationship between `change_in_study_time` and `first_grade_difference` between two parenting styles -- authoritative and authoritarian.  
+```{r}
+library(ggplot2)
+
+ggplot(students, aes(x = change_in_study_time, y = first_grade_difference, color = parenting_style)) +
+  geom_point() +
+  labs(title = "Relationship between Change in Study Time and First Grade Difference",
+       x = "Change in Study Time",
+       y = "First Grade Difference",
+       color = "Parenting Style") +
+  theme_minimal() +
+  scale_color_manual(values = c("Authoritative" = "blue", "Authoritarian" = "red"))
+```
+Note that since we calculated the grade difference with `first_aspirational_grade - first_actual_grade`, a positive grade difference means 
+the actual grade is lower than the aspirational, thus should increase the study time. From our graph, since both lines have positive slopes, it follows the intuitive sense. Examining closer at the range of the study time for the two groups, we see that Authoritative adjusts the study time more than Authoritarian given the same grade difference. This provides evidence to support our hypothesis that since Authoritative students have more freedom in their education, they will adjust their study time more according to the prediction error. Also, surprisingly, we see two perfectly straight lines for the dots, each representing an individual student. 
+
+Let's generate midterm's actual grade to apply the same functions to stimulate the final study time and aspirational grade. 
+```{r}
+# Randomly generate midterm exam actual grade for students
+students$midterm_actual_grade <- runif(nrow(students), 50, 100)
+head(students)
+```
+```{r}
+# Continue the simulation for the final exam for each student
+for (i in 1:nrow(students)) {
+  student <- students[i, ] # Extract data for the current student
+  
+  # Calculate study time for the final exam
+  # The final exam has a higher weight thus its impact on study time is more significant
+  final_study_time <- calculate_study_time(
+    student$parenting_style,
+    student$midterm_study_time,
+    0.5, # Weight of the final exam
+    student$midterm_aspirational_grade, # Use the aspirational grade from the midterm
+    student$midterm_actual_grade, 
+    learning_rate_authoritative,
+    learning_rate_authoritarian
+  )
+  
+  # Calculate aspirational grade for the final exam
+  final_aspirational_grade <- calculate_aspirational_grade(
+    student$midterm_aspirational_grade, # Use the aspirational grade from the midterm
+    final_study_time - student$midterm_study_time, # Time adjustment since the midterm
+    student$midterm_actual_grade,
+    student$overall_grade_aspiration
+  )
+  
+  # Update the dataset
+  students$final_study_time[i] <- final_study_time
+  students$final_aspirational_grade[i] <- final_aspirational_grade
+}
+head(students)
+```
+
+Let's make more graphs to gain other insights into this Part 1 stimulation
+```{r}
+ggplot(students, aes(x = first_aspirational_grade, y = final_aspirational_grade)) +
+  geom_point(aes(color = parenting_style)) +
+  geom_smooth(method = "lm", aes(group = parenting_style, color = parenting_style)) +
+  labs(title = "Correlation between First and Final Aspirational Grade by Parenting Style",
+       x = "Final Aspirational Grade",
+       y = "First Aspirational Grade",
+       color = "Parenting Style") +
+  theme_minimal()
+```
+From this graph, we see that students in authoritarian group tend to have a lower final aspirational grade than first aspirational grade comparing to the authoritative group. 
+
+```{r}
+students %>%
+  group_by(parenting_style) %>%
+  summarize(avg_improvement_study_time = mean(midterm_study_time - first_study_time)) %>%
+  ggplot(aes(x = parenting_style, y = avg_improvement_study_time, fill = parenting_style)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average Improvement in Study Time by Parenting Style", x = "Parenting Style", y = "Average Improvement")
+
+```
+```{r}
+students %>%
+  group_by(parenting_style) %>%
+  summarize(avg_improvement_study_time = mean(final_study_time - midterm_study_time)) %>%
+  ggplot(aes(x = parenting_style, y = avg_improvement_study_time, fill = parenting_style)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average Improvement in Study Time by Parenting Style", x = "Parenting Style", y = "Average Improvement")
+```
+These two boxplots show that for both midterm and final, the authoritative group showed greater absolute value of change in study time.
+
+### Part 2: Dynamic learning rate
+In part two, we will use dynamic learning rates to stimulate students' study time for the final assignment. 
+```{r}
+calculate_study_time_v2 <- function(style, current_time, weight, aspirational_grade, actual_grade) {
+  prediction_error <- aspirational_grade - actual_grade
+  
+  # Draw learning rate from a normal distribution based on parenting style -- authoritative group with mean centered at 0.5 and authoritarian group centered at 0.2
+  mean_lr <- ifelse(style == "Authoritative", 0.5, 0.2)
+  learning_rate <- rnorm(1, mean = mean_lr, sd = 0.3) # An estimated standard deviation
+  
+  # Ensure the learning rate is non-negative
+  learning_rate <- max(learning_rate, 0)
+  
+  delta <- learning_rate * prediction_error
+  new_time <- current_time + weight * delta
+  return(max(new_time, 0))
+}
+
+# Update the simulation loop
+for (i in 1:nrow(students)) {
+  student <- students[i, ]
+  
+  # Use the updated function with dynamic learning rates
+  final_study_time_v2 <- calculate_study_time_v2(
+    student$parenting_style,
+    student$midterm_study_time,
+    0.5,
+    student$midterm_aspirational_grade,
+    student$first_actual_grade
+  )
+  
+  students$final_study_time_v2[i] <- final_study_time_v2
+}
+
+head(students)
+```
+```{r}
+students <- students %>%
+  mutate(change_in_study_time_v2 = final_study_time_v2 - midterm_study_time,
+         second_grade_difference = midterm_aspirational_grade - midterm_actual_grade)
+head(students)
+ggplot(students, aes(x = change_in_study_time_v2, y = second_grade_difference, color = parenting_style)) +
+  geom_point() +
+  geom_smooth(method = "lm", aes(group = parenting_style, color = parenting_style)) +
+  labs(title = "Relationship between Change in Study Time and First Grade Difference",
+       x = "Change in Study Time",
+       y = "Second Grade Difference",
+       color = "Parenting Style") +
+  theme_minimal() +
+  scale_color_manual(values = c("Authoritative" = "blue", "Authoritarian" = "red"))
+```
+
+Unlike the first graph, with fixed learning rate comparing change in study time between the first assignment and midterm with the prediction error of the grade, with perfectly linear dots, the dots on this graph do not seem to follow a specific pattern. However, similarly, looking at the range of change in study time for the two groups, it is apparent that the authoritative group spans wider than the authoritarian group. 
+
+### Part 3: Bayes theorem
+In part 3, we aim to use Bayes theorem to predict parenting style (Authoritative or Authoritarian) for each student based on their `midterm_study_time` and `first_grade_difference`. The logic is to first estimate the parameters (mean and standard deviation) for `first_grade_difference` and `midterm_study_time` for each parenting style, then calculate the likelihood of the observed data under each style, and finally apply Bayes' theorem to predict the most likely parenting style for each student. 
+
+
+
+```{r}
+# Function to estimate parameters for later use in the likelihood function
+estimate_parameters <- function(data, style) { # Takes a dataset and a parenting style as inputs
+  subset_data <- data[data$parenting_style == style, ] # Create a subset with row that style match the specified input style
+  mean_midterm_study_time <- mean(as.numeric(subset_data$midterm_study_time))
+  sd_midterm_study_time <- sd(as.numeric(subset_data$midterm_study_time))
+  mean_first_grade_difference <- mean(as.numeric(subset_data$first_grade_difference))
+  sd_first_grade_difference <- sd(as.numeric(subset_data$first_grade_difference))
+  return(list(mean_midterm_study_time = mean_midterm_study_time, sd_midterm_study_time = sd_midterm_study_time,
+              mean_first_grade_difference = mean_first_grade_difference, sd_first_grade_difference = sd_first_grade_difference)) 
+  # Return a list that contains all calculated statistics
+}
+```
+
+
+```{r}
+# Estimating parameters for each parenting style
+params_authoritative <- estimate_parameters(students, "Authoritative")
+params_authoritarian <- estimate_parameters(students, "Authoritarian")
+```
+
+
+```{r}
+# Likelihood Function: based on how typical the student's data is for the mean and standard deviation of `midterm_study_time` and `first_grade_difference` of each parenting style
+
+calculate_likelihood <- function(midterm_study_time, first_grade_difference, style, params) {
+  # Ensure inputs are numeric
+  midterm_study_time <- as.numeric(midterm_study_time)
+  first_grade_difference <- as.numeric(first_grade_difference)
+  
+  likelihood_study_time <- dnorm(midterm_study_time, mean = params$mean_midterm_study_time, sd = params$sd_midterm_study_time)
+  likelihood_grade_difference <- dnorm(first_grade_difference, mean = params$mean_first_grade_difference, sd = params$sd_first_grade_difference)
+  
+  # Combined likelihood
+  return(likelihood_study_time * likelihood_grade_difference)
+}
+```
+
+
+```{r}
+# Function to calculate the probability of a parenting style
+predict_parenting_style <- function(midterm_study_time, first_grade_difference) {
+  likelihood_authoritative <- calculate_likelihood(midterm_study_time, first_grade_difference, "Authoritative", params_authoritative)
+  likelihood_authoritarian <- calculate_likelihood(midterm_study_time, first_grade_difference, "Authoritarian", params_authoritarian)
+  
+  # Bayes' theorem
+  post_authoritative <- likelihood_authoritative * prior_authoritative / 
+    (likelihood_authoritative * prior_authoritative + likelihood_authoritarian * prior_authoritarian)
+  post_authoritarian <- likelihood_authoritarian * prior_authoritarian / 
+    (likelihood_authoritative * prior_authoritative + likelihood_authoritarian * prior_authoritarian)
+  
+  if (post_authoritative > post_authoritarian) {
+    return("Authoritative")
+  } else {
+    return("Authoritarian")
+  }
+}
+```
+
+
+```{r}
+# Assuming equal probability for both parenting styles as a prior
+prior_authoritative <- 0.5
+prior_authoritarian <- 0.5
+
+# Apply the prediction function to the dataset
+students$predicted_parenting_style <- apply(students, 1, function(x) predict_parenting_style(x['midterm_study_time'], x['first_grade_difference']))
+
+head(students)
+
+```
+
+Let's see how accurately Bayes theorem is able to predict the parenting style...
+```{r}
+# Calculate the number of correct predictions
+correct_predictions <- sum(students$predicted_parenting_style == students$parenting_style)
+
+# Calculate the total number of predictions
+total_predictions <- nrow(students)
+
+# Calculate the accuracy percentage
+accuracy_percentage <- (correct_predictions / total_predictions) * 100
+
+cat("Accuracy of predicting parenting styles:", accuracy_percentage, "%\n")
+```
+
+### Conclusion:
+Based on the stimulation we can conclude about the following things:
+
+1. Authoritative adjusts the study time more than Authoritarian given the same grade difference;
+
+2. Students in authoritarian group tend to have a lower final aspirational grade than first aspirational grade comparing to the authoritative group;
+
+3. Bayes Theorem is able to predict parenting style with above chance number of times based on `midterm_study_time` and `first_grade_difference`.
+
+However, please note that these are only the conclusions made based on stimulation results and they need to be experimented by real participants to be validated. Also, there are other limitations about this stimulation. For example, `overall_grade_aspiration` is randomly generated, thus having no relationship with the aspirational grade of any of the three assignments. However, in real life, the `overall_grade_aspiration` should have influence on the individual assignment's grade expectation. Furthermore, the range for grade and study time and learning rates' distribution are estimated/educated guess; there could be more variability in real life. 
+
